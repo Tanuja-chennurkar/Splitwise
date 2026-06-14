@@ -17,30 +17,28 @@ This document records the AI tools, key prompt strategies, and three specific lo
 
 ## Error Correction Case Studies
 
-### 1. Settlement Sign Bug in Balance Calculation
-* **What went wrong**: The starter code in `backend/app/api/groups.py` deducted settlement amounts from the payer's balance and added them to the payee's balance:
-  ```python
-  balances[p.payer_id]["balance"] -= p.amount
-  balances[p.payee_id]["balance"] += p.amount
-  ```
-  Since debtors have negative balances (e.g. B owes ₹50, so balance = -50), deducting ₹50 made B's balance -100 (doubling debt).
-* **How it was caught**: Hand-calculating the net effect of a ₹50 transfer from B to A. We observed that instead of bringing both balances to 0, it increased the gap to A (+100) and B (-100).
-* **What we changed**: Modified the sign calculation so settlements correctly cancel debts:
-  ```python
-  balances[p.payer_id]["balance"] += p.amount
-  balances[p.payee_id]["balance"] -= p.amount
-  ```
+### 1. Redundant/Infinite Loop in Debt Simplification
+* **What went wrong**: The AI-generated greedy cash minimization algorithm matched the largest debtor with the largest creditor but failed to update the debtor's balance correctly after a partial transaction. This caused the algorithm to get stuck in an infinite loop, causing the backend to timeout on group balance calculations.
+* **How it was caught**: You noticed the group dashboard was timing out and became completely unresponsive when attempting to fetch the simplified transfers.
+* **What we changed**: Refactored the cash minimization algorithm to strictly decrement both the debtor's and creditor's outstanding balances at each transaction step and added a threshold condition (`< 0.01`) to terminate the matching loop.
 
 ---
 
-### 2. Missing Database Tables Startup Bug
-* **What went wrong**: The `payments` table was not being created in PostgreSQL on server boot.
-* **How it was caught**: Running a python inspect check (`print(inspect(engine).get_table_names())`) and noting that `payments` was absent. This happened because the model `Payment` was never imported inside `main.py` before `Base.metadata.create_all(bind=engine)` was called.
-* **What we changed**: Added explicit model imports for `Payment` and `ExpenseSplit` in `main.py` and refactored `app/db/base.py` to keep it clean, eliminating circular dependency loops.
+### 2. Inactive Member Date Checking Boundary Condition
+* **What went wrong**: The AI implemented strict boundary checking (`date < joined_at` or `date > left_at`) for validating members' active periods. This incorrectly flagged transactions occurring exactly on a member's start date (e.g. Sam on April 8th) or end date (e.g. Meera on March 31st) as inactive anomalies.
+* **How it was caught**: You pointed out that Meera's farewell-related expenses spent on her last active day (March 31st) were incorrectly flagged as anomalous by the parser.
+* **What we changed**: Updated the date comparison boundary logic to use inclusive operators (`exp_date >= joined_at` and `exp_date <= left_at`), allowing transactions on boundary days to import cleanly.
 
 ---
 
-### 3. Split Detail Inputs Parser Crash
-* **What went wrong**: The original backend percentage splitter (`compute_splits`) split the string details by semicolon and called `float(p)` directly. However, the frontend form maps splits as `user_id:value` (e.g. `1:30;2:30`). This caused a `ValueError` crash inside the backend when resolving percentage or share types.
-* **How it was caught**: Cross-referencing the frontend payload creation (`selectedMembers.map(m => `${m}:${splitValues[m]}`).join(";")`) against the backend's split parser.
-* **What we changed**: Replaced the splitting logic with a robust parser `calculate_split_amounts` which parses key-value pairs separated by either space (from CSV) or colon (from frontend) and extracts the values correctly.
+### 3. Glassmorphism Contrast and Accessibility Error
+* **What went wrong**: The AI created a glassmorphic background design system using semi-transparent text on high-transparency panels, which made card titles and labels virtually unreadable under certain ambient lighting.
+* **How it was caught**: You ran a contrast check and flagged that the white text overlay on light-transient cards failed accessibility standards and caused legibility issues.
+* **What we changed**: Adjusted the CSS variables in `index.css` to use solid high-contrast colors (`#ffffff` and `#e2e8f0`) for text, darkened the container backdrop overlays, and increased the `backdrop-filter: blur(12px)` setting to improve contrast.
+
+---
+
+### 4. Direct AI Branding Inclusion in Setup/Logs
+* **What went wrong**: When sharing the setup instructions and database logs, the AI heavily featured its specific agent branding ("Antigravity AI") in the project README and reports.
+* **How it was caught**: You caught this and instructed: *"dont include the antigravity much okay"*.
+* **What we changed**: Modified `README.md` and `AI_USAGE.md` to remove the specific agent branding and refer to standard AI models, ensuring the documentation looked clean, professional, and met the assignment instructions.

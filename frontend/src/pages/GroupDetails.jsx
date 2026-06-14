@@ -34,6 +34,7 @@ function GroupDetails() {
   const [showLedger, setShowLedger] = useState(false);
   const [ledgerUser, setLedgerUser] = useState(null);
   const [ledgerData, setLedgerData] = useState([]);
+  const [currentUser, setCurrentUser] = useState(null);
 
   const getPlaceholder = (type) => {
     if (type === "percentage") return "%";
@@ -42,8 +43,27 @@ function GroupDetails() {
   };
 
   useEffect(() => {
-    fetchData();
-  }, []);
+    const token = localStorage.getItem("token");
+    if (!token) {
+      navigate("/login");
+      return;
+    }
+
+    const initialize = async () => {
+      try {
+        const userRes = await api.get("/auth/me");
+        setCurrentUser(userRes.data);
+      } catch (err) {
+        console.error("Failed to fetch user:", err);
+        localStorage.removeItem("token");
+        navigate("/login");
+        return;
+      }
+      fetchData();
+    };
+
+    initialize();
+  }, [navigate]);
 
   const fetchData = async () => {
     try {
@@ -166,11 +186,29 @@ function GroupDetails() {
   return (
     <div className="container">
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "20px", marginBottom: "20px" }}>
-        <button onClick={() => navigate("/")} className="secondary">
+        <button onClick={() => navigate("/")} className="secondary" style={{ margin: 0 }}>
           ← Back to Dashboard
         </button>
-        <h1>Group Details</h1>
-        <button onClick={() => navigate("/import-issues")} style={{ background: "linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)", boxShadow: "0 4px 12px rgba(99, 102, 241, 0.2)" }}>
+        <h1 style={{ margin: 0 }}>Group Details</h1>
+        {currentUser && (
+          <div style={{ display: "flex", alignItems: "center", gap: "15px" }}>
+            <span style={{ color: "var(--text-secondary)" }}>
+              Logged in as <strong style={{ color: "var(--primary)" }}>{currentUser.name}</strong>
+            </span>
+            <button
+              onClick={() => {
+                localStorage.removeItem("token");
+                delete api.defaults.headers.common["Authorization"];
+                navigate("/login");
+              }}
+              className="secondary"
+              style={{ padding: "6px 12px", fontSize: "0.9rem", margin: 0 }}
+            >
+              Logout
+            </button>
+          </div>
+        )}
+        <button onClick={() => navigate("/import-issues")} style={{ margin: 0, background: "linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)", boxShadow: "0 4px 12px rgba(99, 102, 241, 0.2)" }}>
           CSV Issues Dashboard
         </button>
       </div>

@@ -9,12 +9,32 @@ function Groups() {
   const [csvFile, setCsvFile] = useState(null);
   const [loading, setLoading] = useState(false);
   const [selectedGroupId, setSelectedGroupId] = useState("");
+  const [currentUser, setCurrentUser] = useState(null);
 
   const navigate = useNavigate();
 
   useEffect(() => {
-    fetchGroups();
-  }, []);
+    const token = localStorage.getItem("token");
+    if (!token) {
+      navigate("/login");
+      return;
+    }
+
+    const initialize = async () => {
+      try {
+        const userRes = await api.get("/auth/me");
+        setCurrentUser(userRes.data);
+      } catch (err) {
+        console.error("Failed to fetch user:", err);
+        localStorage.removeItem("token");
+        navigate("/login");
+        return;
+      }
+      fetchGroups();
+    };
+
+    initialize();
+  }, [navigate]);
 
   const fetchGroups = async () => {
     try {
@@ -61,7 +81,27 @@ function Groups() {
 
   return (
     <div className="container">
-      <h1 style={{ marginTop: "20px" }}>Splitwise</h1>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "20px", marginBottom: "20px" }}>
+        <h1 style={{ margin: 0 }}>Splitwise</h1>
+        {currentUser && (
+          <div style={{ display: "flex", alignItems: "center", gap: "15px" }}>
+            <span style={{ color: "var(--text-secondary)" }}>
+              Logged in as <strong style={{ color: "var(--primary)" }}>{currentUser.name}</strong>
+            </span>
+            <button
+              onClick={() => {
+                localStorage.removeItem("token");
+                delete api.defaults.headers.common["Authorization"];
+                navigate("/login");
+              }}
+              className="secondary"
+              style={{ padding: "6px 12px", fontSize: "0.9rem", margin: 0 }}
+            >
+              Logout
+            </button>
+          </div>
+        )}
+      </div>
 
       <div className="grid-cols-2">
         {/* Create Group Card */}

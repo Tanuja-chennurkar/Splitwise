@@ -30,7 +30,7 @@ services:
     build:
       context: ./frontend
       args:
-        - VITE_API_URL=http://localhost:8001
+        VITE_API_URL: https://splitwise-backend-latest.onrender.com
     image: tanujachennurkar/splitwise-frontend:latest
     container_name: splitwise-frontend
     restart: always

@@ -178,8 +178,13 @@ export default function ImportIssues() {
   };
 
   useEffect(() => {
+    const token = localStorage.getItem("token");
+    if (!token) {
+      navigate("/login");
+      return;
+    }
     fetchIssuesAndUsers();
-  }, []);
+  }, [navigate]);
 
   const handleResolutionChange = (issueId, key, value) => {
     setResolutions((prev) => {
