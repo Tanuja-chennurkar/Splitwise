@@ -78,4 +78,14 @@ def get_group_balances(
         for split in splits:
             balances[split.user_id]["balance"] -= split.amount
 
+    # apply payments (settlements) which adjust balances
+    from app.models.payment import Payment
+    payments = db.query(Payment).filter(Payment.group_id == group_id).all()
+    for p in payments:
+        # payer paid payee amount to settle; payer balance decreases, payee increases
+        if p.payer_id in balances:
+            balances[p.payer_id]["balance"] -= p.amount
+        if p.payee_id in balances:
+            balances[p.payee_id]["balance"] += p.amount
+
     return balances

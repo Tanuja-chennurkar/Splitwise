@@ -11,8 +11,12 @@ from app.api.group_memberships import (
     router as membership_router
 )
 from app.models.expense import Expense
+from app.models.import_issue import ImportIssue
 from app.api.expenses import router as expense_router
 from app.api.expense_splits import router as expense_split_router
+from app.api.import_issues import router as import_issue_router
+from app.api.auth import router as auth_router
+from app.api.payments import router as payments_router
 
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -28,6 +32,9 @@ app.include_router(group_router)
 app.include_router(membership_router)
 app.include_router(expense_router)
 app.include_router(expense_split_router)
+app.include_router(import_issue_router)
+app.include_router(auth_router)
+app.include_router(payments_router)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:5173"],

@@ -9,11 +9,21 @@ function GroupDetails() {
   const [members, setMembers] = useState([]);
   const [balances, setBalances] = useState({});
   const [expenses, setExpenses] = useState([]);
+  const [allUsers, setAllUsers] = useState([]);
+  const [newMemberId, setNewMemberId] = useState("");
 
   const [description, setDescription] = useState("");
   const [amount, setAmount] = useState("");
   const [paidBy, setPaidBy] = useState("");
   const [selectedMembers, setSelectedMembers] = useState([]);
+  const [splitType, setSplitType] = useState("equal");
+  const [splitValues, setSplitValues] = useState({});
+
+  const getPlaceholder = (type) => {
+    if (type === "percentage") return "%";
+    if (type === "share") return "weight";
+    return "amount";
+  };
 
   useEffect(() => {
     fetchData();
@@ -24,6 +34,8 @@ function GroupDetails() {
       const membersRes = await api.get(
         `/memberships/groups/${id}`
       );
+
+      const usersRes = await api.get("/users");
 
       const balancesRes = await api.get(
         `/groups/${id}/balances`
@@ -38,6 +50,7 @@ function GroupDetails() {
       );
 
       setMembers(membersRes.data);
+      setAllUsers(usersRes.data);
       setBalances(balancesRes.data);
       setExpenses(groupExpenses);
     } catch (error) {
@@ -65,30 +78,19 @@ function GroupDetails() {
         return;
       }
 
-      const expenseRes = await api.post("/expenses", {
+      await api.post("/expenses", {
         group_id: Number(id),
         paid_by: Number(paidBy),
         description,
         amount: Number(amount),
         expense_date: new Date()
           .toISOString()
-          .split("T")[0]
+          .split("T")[0],
+        split_with: selectedMembers,
+        split_type: splitType,
+        split_details: (splitType === "equal") ? null : selectedMembers.map(m => `${m}:${splitValues[m] || 0}`).join(";")
       });
-
-      const expenseId = expenseRes.data.id;
-
-      const splitAmount =
-        Number(amount) / selectedMembers.length;
-
-      for (const memberId of selectedMembers) {
-        await api.post(
-          `/expense-splits/expenses/${expenseId}`,
-          {
-            user_id: memberId,
-            amount: splitAmount
-          }
-        );
-      }
+      // server will create splits
 
       setDescription("");
       setAmount("");
@@ -117,10 +119,39 @@ function GroupDetails() {
         <h2>Members</h2>
 
         {members.map((member) => (
-          <p key={member.id}>
-            {member.name} ({member.email})
-          </p>
+          <div key={member.membership_id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div>{member.name} ({member.email})</div>
+            <div>
+              <button onClick={async () => {
+                try {
+                  await api.delete(`/memberships/${member.membership_id}`);
+                  fetchData();
+                } catch (err) {
+                  console.error(err);
+                  alert('Failed to remove member');
+                }
+              }}>Remove</button>
+            </div>
+          </div>
         ))}
+
+        <div style={{ marginTop: 8 }}>
+          <select value={newMemberId} onChange={(e) => setNewMemberId(e.target.value)}>
+            <option value="">Add existing user</option>
+            {allUsers.map(u => <option key={u.id} value={u.id}>{u.name} ({u.email})</option>)}
+          </select>
+          <button style={{ marginLeft: 8 }} onClick={async () => {
+            if (!newMemberId) return alert('Select a user to add');
+            try {
+              await api.post(`/memberships/groups/${id}`, { user_id: Number(newMemberId), joined_at: new Date().toISOString().split('T')[0] });
+              setNewMemberId('');
+              fetchData();
+            } catch (err) {
+              console.error(err);
+              alert('Failed to add member');
+            }
+          }}>Add</button>
+        </div>
       </div>
 
       <div className="card">
@@ -182,6 +213,35 @@ function GroupDetails() {
       </div>
 
       <div className="card">
+        <h2>Record Payment / Settle</h2>
+        <div>
+          <label htmlFor="payment-from">From: </label>
+          <select id="payment-from" value={paidBy} onChange={(e) => setPaidBy(e.target.value)}>
+            <option value="">Select payer</option>
+            {members.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
+          </select>
+        </div>
+        <div>
+          <label htmlFor="payment-to">To: </label>
+          <select id="payment-to" value={newMemberId} onChange={(e) => setNewMemberId(e.target.value)}>
+            <option value="">Select payee</option>
+            {members.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
+          </select>
+        </div>
+        <div>
+          <label htmlFor="payment-amount">Amount: </label>
+          <input id="payment-amount" type="number" value={amount} onChange={(e) => setAmount(e.target.value)} />
+        </div>
+        <button style={{ marginTop: 8 }} onClick={async () => {
+          if (!paidBy || !newMemberId || !amount) return alert('fill fields');
+          try {
+            await api.post('/payments', { group_id: Number(id), payer_id: Number(paidBy), payee_id: Number(newMemberId), amount: Number(amount) });
+            setAmount(''); setPaidBy(''); setNewMemberId(''); fetchData();
+          } catch (err) { console.error(err); alert('Failed to record payment'); }
+        }}>Record Payment</button>
+      </div>
+
+      <div className="card">
         <h2>Add Expense</h2>
 
         <input
@@ -230,8 +290,18 @@ function GroupDetails() {
 
         <h3>Split Between</h3>
 
+        <div>
+          <label htmlFor="split-type-select">Split Type: </label>
+          <select id="split-type-select" value={splitType} onChange={(e) => setSplitType(e.target.value)}>
+            <option value="equal">Equal</option>
+            <option value="unequal">Unequal (amounts)</option>
+            <option value="percentage">Percentage</option>
+            <option value="share">Share (weights)</option>
+          </select>
+        </div>
+
         {members.map((member) => (
-          <div key={member.id}>
+          <div key={member.id} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <input
               type="checkbox"
               checked={selectedMembers.includes(
@@ -242,7 +312,16 @@ function GroupDetails() {
               }
             />
 
-            <label>{member.name}</label>
+            <label style={{ minWidth: 120 }}>{member.name}</label>
+            {selectedMembers.includes(member.id) && splitType !== "equal" && (
+              <input
+                type="text"
+                placeholder={getPlaceholder(splitType)}
+                value={splitValues[member.id] || ""}
+                onChange={(e) => setSplitValues((p) => ({ ...p, [member.id]: e.target.value }))}
+                style={{ width: 120 }}
+              />
+            )}
           </div>
         ))}
 

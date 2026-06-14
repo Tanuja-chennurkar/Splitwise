@@ -1,3 +1,5 @@
+from typing import Annotated
+
 from fastapi import APIRouter, Depends, UploadFile, File
 from sqlalchemy.orm import Session
 
@@ -8,13 +10,17 @@ from app.schemas.expense import (
     ExpenseResponse
 )
 from app.models.expense_split import ExpenseSplit
-from app.models.user import User
 from app.models.group import Group
+from app.services.import_service import (
+    create_or_get_user,
+    create_import_issue,
+    create_expense_from_row,
+    row_to_dict,
+    analyze_import_row,
+)
 
 import csv
 import io
-from datetime import datetime
-import re
 
 router = APIRouter(
     prefix="/expenses",
@@ -22,10 +28,106 @@ router = APIRouter(
 )
 
 
+def compute_splits(total: float, split_type: str | None, participants: list[int], details: str | None):
+    if not participants:
+        return []
+    st = (split_type or "").strip().lower()
+
+    def _equal():
+        share = round(total / len(participants), 2)
+        return [share] * len(participants)
+
+    def _unequal():
+        if not details:
+            return [0] * len(participants)
+        parts = [p.strip() for p in details.split(";") if p.strip()]
+        mapping = {}
+        values = []
+        for part in parts:
+            if ":" in part or " " in part:
+                sep = ":" if ":" in part else " "
+                left, right = part.rsplit(sep, 1)
+                try:
+                    key = int(left)
+                    val = float(right.replace(',', ''))
+                    mapping[key] = val
+                except Exception:
+                    try:
+                        values.append(float(part.replace(',', '')))
+                    except Exception:
+                        continue
+            else:
+                try:
+                    values.append(float(part.replace(',', '')))
+                except Exception:
+                    continue
+        if mapping:
+            return [round(mapping.get(pid, 0.0), 2) for pid in participants]
+        if values and len(values) == len(participants):
+            return [round(v, 2) for v in values]
+        return [0] * len(participants)
+
+    def _percentage():
+        if not details:
+            return [0] * len(participants)
+        parts = [p.strip().rstrip('%') for p in details.split(";") if p.strip()]
+        try:
+            nums = [float(p) for p in parts]
+            return [round(total * (n / 100.0), 2) for n in nums]
+        except Exception:
+            return [0] * len(participants)
+
+    def _share():
+        if not details:
+            return [0] * len(participants)
+        parts = [p.strip() for p in details.split(";") if p.strip()]
+        weights = []
+        mapping = {}
+        for part in parts:
+            if ":" in part or " " in part:
+                sep = ":" if ":" in part else " "
+                left, right = part.rsplit(sep, 1)
+                try:
+                    key = int(left)
+                    val = float(right)
+                    mapping[key] = val
+                except Exception:
+                    try:
+                        weights.append(int(right))
+                    except Exception:
+                        continue
+            else:
+                try:
+                    weights.append(int(part))
+                except Exception:
+                    continue
+        if mapping:
+            total_weight = sum(mapping.get(pid, 0) for pid in participants)
+            if total_weight <= 0:
+                return [0] * len(participants)
+            return [round(total * mapping.get(pid, 0) / total_weight, 2) for pid in participants]
+        if weights and len(weights) == len(participants):
+            total_weight = sum(weights)
+            if total_weight <= 0:
+                return [0] * len(participants)
+            return [round(total * w / total_weight, 2) for w in weights]
+        return [0] * len(participants)
+
+    if st in ("", "equal"):
+        return _equal()
+    if st == "unequal":
+        return _unequal()
+    if st == "percentage":
+        return _percentage()
+    if st == "share":
+        return _share()
+    return [0] * len(participants)
+
+
 @router.post("/", response_model=ExpenseResponse)
 def create_expense(
     expense: ExpenseCreate,
-    db: Session = Depends(get_db)
+    db: Annotated[Session, Depends(get_db)]
 ):
     db_expense = Expense(
         group_id=expense.group_id,
@@ -39,12 +141,113 @@ def create_expense(
     db.commit()
     db.refresh(db_expense)
 
+    # create splits when split_with provided
+    def _compute_splits(total: float, split_type: str | None, participants: list[int], details: str | None):
+        if not participants:
+            return []
+        st = (split_type or "").strip().lower()
+        # equal
+        if st in ("", "equal"):
+            share = round(total / len(participants), 2)
+            return [share] * len(participants)
+
+        # unequal: details may be mapping 'id value;id value' or values in order
+        if st == "unequal":
+            if not details:
+                return [0] * len(participants)
+            parts = [p.strip() for p in details.split(";") if p.strip()]
+            mapping = {}
+            values = []
+            for part in parts:
+                if ":" in part or " " in part:
+                    sep = ":" if ":" in part else " "
+                    left, right = part.rsplit(sep, 1)
+                    try:
+                        key = int(left)
+                        val = float(right.replace(',', ''))
+                        mapping[key] = val
+                    except Exception:
+                        # treat as value-only
+                        try:
+                            values.append(float(part.replace(',', '')))
+                        except Exception:
+                            continue
+                else:
+                    try:
+                        values.append(float(part.replace(',', '')))
+                    except Exception:
+                        continue
+            if mapping:
+                return [round(mapping.get(pid, 0.0), 2) for pid in participants]
+            if values and len(values) == len(participants):
+                return [round(v, 2) for v in values]
+            return [0] * len(participants)
+
+        # percentage
+        if st == "percentage":
+            if not details:
+                return [0] * len(participants)
+            parts = [p.strip().rstrip('%') for p in details.split(";") if p.strip()]
+            try:
+                nums = [float(p) for p in parts]
+                return [round(total * (n / 100.0), 2) for n in nums]
+            except Exception:
+                return [0] * len(participants)
+
+        # share (weights)
+        if st == "share":
+            if not details:
+                return [0] * len(participants)
+            parts = [p.strip() for p in details.split(";") if p.strip()]
+            weights = []
+            mapping = {}
+            for part in parts:
+                if ":" in part or " " in part:
+                    sep = ":" if ":" in part else " "
+                    left, right = part.rsplit(sep, 1)
+                    try:
+                        key = int(left)
+                        val = float(right)
+                        mapping[key] = val
+                    except Exception:
+                        try:
+                            weights.append(int(right))
+                        except Exception:
+                            continue
+                else:
+                    try:
+                        weights.append(int(part))
+                    except Exception:
+                        continue
+            if mapping:
+                total_weight = sum(mapping.get(pid, 0) for pid in participants)
+                if total_weight <= 0:
+                    return [0] * len(participants)
+                return [round(total * mapping.get(pid, 0) / total_weight, 2) for pid in participants]
+            if weights and len(weights) == len(participants):
+                total_weight = sum(weights)
+                if total_weight <= 0:
+                    return [0] * len(participants)
+                return [round(total * w / total_weight, 2) for w in weights]
+            return [0] * len(participants)
+
+        return [0] * len(participants)
+
+    if getattr(expense, "split_with", None):
+        participants = expense.split_with or []
+        if participants:
+            split_amounts = _compute_splits(expense.amount, getattr(expense, "split_type", None), participants, getattr(expense, "split_details", None))
+            for user_id, amt in zip(participants, split_amounts):
+                split = ExpenseSplit(expense_id=db_expense.id, user_id=user_id, amount=amt)
+                db.add(split)
+            db.commit()
+
     return db_expense
 
 
 @router.get("/", response_model=list[ExpenseResponse])
 def get_expenses(
-    db: Session = Depends(get_db)
+    db: Annotated[Session, Depends(get_db)]
 ):
     return db.query(Expense).all()
 
@@ -52,7 +255,7 @@ def get_expenses(
 @router.get("/{expense_id}", response_model=ExpenseResponse)
 def get_expense(
     expense_id: int,
-    db: Session = Depends(get_db)
+    db: Annotated[Session, Depends(get_db)]
 ):
     return (
         db.query(Expense)
@@ -60,10 +263,11 @@ def get_expense(
         .first()
     )
     
+
 @router.delete("/{expense_id}")
 def delete_expense(
     expense_id: int,
-    db: Session = Depends(get_db)
+    db: Annotated[Session, Depends(get_db)]
 ):
     db.query(ExpenseSplit).filter(
         ExpenseSplit.expense_id == expense_id
@@ -80,161 +284,58 @@ def delete_expense(
 
 @router.post("/import-csv")
 def import_expenses(
-    file: UploadFile = File(...),
-    db: Session = Depends(get_db)
+    file: Annotated[UploadFile, File(...)],
+    db: Annotated[Session, Depends(get_db)],
+    group_id: int | None = None
 ):
     content = file.file.read().decode(errors="replace")
     reader = csv.DictReader(io.StringIO(content))
 
-    # ensure group exists
-    group = db.query(Group).filter(Group.name == "Flatmates").first()
-    if not group:
-        group = Group(name="Flatmates", description="Imported flatmates group")
-        db.add(group)
-        db.commit()
-        db.refresh(group)
+    if group_id:
+        group = db.query(Group).filter(Group.id == group_id).first()
+        if not group:
+            raise HTTPException(status_code=404, detail="Group not found")
+    else:
+        group = db.query(Group).filter(Group.name == "Flatmates").first()
+        if not group:
+            group = Group(name="Flatmates", description="Imported flatmates group")
+            db.add(group)
+            db.commit()
+            db.refresh(group)
 
     report = []
     created = 0
-
-    def normalize_name(n: str) -> str | None:
-        if not n:
-            return None
-        return n.strip().title()
-
-    def parse_amount(a: str):
-        if a is None:
-            return None
-        a = a.replace(',', '').strip()
-        try:
-            return float(a)
-        except Exception:
-            return None
-
-    def parse_date(s: str):
-        if not s:
-            return None
-        s = s.strip()
-        # try a few formats
-        fmts = ["%d-%m-%Y", "%d-%b-%Y", "%d-%m-%y", "%d-%b", "%b-%d", "%Y-%m-%d"]
-        for f in fmts:
-            try:
-                d = datetime.strptime(s, f)
-                # if year missing, assume 2026
-                if d.year == 1900:
-                    d = d.replace(year=2026)
-                return d.date()
-            except Exception:
-                continue
-        # try parsing like Mar-14
-        m = re.match(r"([A-Za-z]+)[- ](\d{1,2})", s)
-        if m:
-            try:
-                d = datetime.strptime(f"{m.group(2)}-{m.group(1)}-2026", "%d-%b-%Y")
-                return d.date()
-            except Exception:
-                pass
-        return None
-
     rows = list(reader)
     seen_hashes = set()
 
     for idx, row in enumerate(rows, start=1):
-        anomalies = []
+        anomalies, payer_name, participants = analyze_import_row(row, seen_hashes)
 
-        date_raw = row.get("date")
-        description = (row.get("description") or "").strip()
-        paid_by_raw = row.get("paid_by")
-        amount_raw = row.get("amount")
-        currency = (row.get("currency") or "INR").strip()
-        split_type = (row.get("split_type") or "").strip()
-        split_with = (row.get("split_with") or "").strip()
-        split_details = (row.get("split_details") or "").strip()
-        notes = (row.get("notes") or "").strip()
+        if payer_name:
+            create_or_get_user(db, payer_name)
+        for participant in participants:
+            if participant:
+                create_or_get_user(db, participant)
 
-        exp_date = parse_date(date_raw)
-        if not exp_date:
-            anomalies.append("unparseable_date")
-
-        amount = parse_amount(amount_raw)
-        if amount is None:
-            anomalies.append("unparseable_amount")
-        else:
-            if amount == 0:
-                anomalies.append("zero_amount")
-            if amount < 0:
-                anomalies.append("negative_amount")
-
-        paid_by = normalize_name(paid_by_raw)
-        if not paid_by:
-            anomalies.append("missing_payer")
-
-        # simple duplicate detection by normalized triple
-        amount_key = f"{amount:.2f}" if isinstance(amount, (int, float)) else None
-        row_hash = (str(exp_date), description.lower(), amount_key)
-        if row_hash in seen_hashes:
-            anomalies.append("duplicate")
-        else:
-            seen_hashes.add(row_hash)
-
-        # settlement detection heuristics
-        if re.search(r"paid .* back|settle|settlement|paid .* to", description.lower()) or "settlement" in notes.lower():
-            anomalies.append("possible_settlement")
-
-        # currency missing or USD present
-        if not currency:
-            anomalies.append("missing_currency")
-        if currency.upper() != "INR":
-            anomalies.append("foreign_currency")
-
-        # split vs details mismatch
-        if split_type.lower() in ("equal", "share") and split_details:
-            anomalies.append("split_details_inconsistent")
-
-        # map or create users mentioned
-        participants = [normalize_name(n) for n in split_with.split(";") if n.strip()]
-        unknown_users = [p for p in participants if p and not db.query(User).filter(User.name == p).first()]
-        for u in unknown_users:
-            # create user record without email
-            new_user = User(name=u, email=f"{u.lower()}@local")
-            db.add(new_user)
-        if unknown_users:
-            db.commit()
-
-        # if any anomalies flagged, do not auto-create expense; include in report for review
         if anomalies:
-            report.append({"row": idx, "description": description, "anomalies": anomalies, "raw": row})
+            issue = create_import_issue(
+                db,
+                group,
+                idx,
+                (row.get("description") or "Imported expense requires review").strip(),
+                anomalies,
+                row_to_dict(row),
+            )
+            report.append({
+                "row": idx,
+                "description": (row.get("description") or "").strip(),
+                "anomalies": anomalies,
+                "issue_id": issue.id,
+                "raw": row,
+            })
             continue
 
-        # create or find payer
-        payer_name = normalize_name(paid_by_raw)
-        payer = db.query(User).filter(User.name == payer_name).first()
-        if not payer:
-            payer = User(name=payer_name, email=f"{payer_name.lower()}@local")
-            db.add(payer)
-            db.commit()
-            db.refresh(payer)
-
-        # create expense
-        db_expense = Expense(
-            group_id=group.id,
-            paid_by=payer.id,
-            description=description,
-            amount=amount,
-            expense_date=exp_date
-        )
-        db.add(db_expense)
-        db.commit()
-        db.refresh(db_expense)
-
-        # create equal splits
-        per_user = round(amount / max(1, len(participants)), 2)
-        for p in participants:
-            user = db.query(User).filter(User.name == p).first()
-            if user:
-                split = ExpenseSplit(expense_id=db_expense.id, user_id=user.id, amount=per_user)
-                db.add(split)
-        db.commit()
+        create_expense_from_row(db, group, row)
         created += 1
 
     return {"created": created, "anomalies": report}
