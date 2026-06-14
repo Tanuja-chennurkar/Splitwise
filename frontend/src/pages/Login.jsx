@@ -54,17 +54,6 @@ export default function Login() {
           Log In
         </button>
 
-        <div style={{ background: "rgba(255,255,255,0.03)", padding: "12px", borderRadius: "8px", margin: "20px 0 10px 0", fontSize: "0.85rem", color: "var(--text-secondary)", border: "1px solid rgba(255,255,255,0.05)" }}>
-          <strong>Demo Accounts (Password: <code>password123</code>)</strong>
-          <ul style={{ paddingLeft: "20px", marginTop: "5px" }}>
-            <li>Aisha: <code>aisha@local</code></li>
-            <li>Rohan: <code>rohan@local</code></li>
-            <li>Priya: <code>priya@local</code></li>
-            <li>Meera: <code>meera@local</code></li>
-            <li>Sam: <code>sam@local</code></li>
-          </ul>
-        </div>
-
         <p style={{ textAlign: "center", fontSize: "0.9rem", marginTop: "20px" }}>
           Don't have an account?{" "}
           <span
