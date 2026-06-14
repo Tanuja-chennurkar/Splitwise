@@ -61,7 +61,7 @@ function Groups() {
 
   return (
     <div className="container">
-      <h1 style={{ marginTop: "20px" }}>Antigravity Splitwise</h1>
+      <h1 style={{ marginTop: "20px" }}>Splitwise</h1>
 
       <div className="grid-cols-2">
         {/* Create Group Card */}
