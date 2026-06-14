@@ -19,7 +19,15 @@ export default function Login() {
       navigate("/");
     } catch (err) {
       console.error(err);
-      alert(err.response?.data?.detail || "Login failed");
+      let errorMsg = "Login failed";
+      if (err.response?.data?.detail) {
+        if (Array.isArray(err.response.data.detail)) {
+          errorMsg = err.response.data.detail.map(d => `${d.loc[d.loc.length - 1]}: ${d.msg}`).join("\n");
+        } else if (typeof err.response.data.detail === "string") {
+          errorMsg = err.response.data.detail;
+        }
+      }
+      alert(errorMsg);
     }
   };
 
