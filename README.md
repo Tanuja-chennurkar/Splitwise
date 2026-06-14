@@ -2,7 +2,7 @@
 
 A premium Splitwise-style Shared Expenses App featuring a dark-theme glassmorphic UI, dynamic group membership intervals, an audited transaction ledger, debt simplification suggested transfers, and an interactive CSV import resolution wizard.
 
-Developed with **Antigravity AI (powered by Gemini 3.5 Flash)**.
+Developed with the assistance of Gemini 3.5 Flash.
 
 ---
 

@@ -6,4 +6,5 @@ python-multipart
 pydantic
 pydantic-settings
 passlib[bcrypt]
-pyjwt
+email-validator
+PyJWT

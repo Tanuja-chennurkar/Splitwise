@@ -10,18 +10,19 @@ services:
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: spiltwise_db
     ports:
-      - "5433:5432"  # Map host port 5433 to container port 5432 to match user's .env database URL
+      - "5433:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
 
   backend:
     build: ./backend
+    image: tanujachennurkar/splitwise-backend:latest
     container_name: splitwise-backend
     restart: always
     environment:
       DATABASE_URL: postgresql://postgres:postgres@db:5432/spiltwise_db
     ports:
-      - "8001:8000"  # Map host port 8001 to container port 8000
+      - "8001:8000"
     depends_on:
       - db
 
@@ -30,10 +31,11 @@ services:
       context: ./frontend
       args:
         - VITE_API_URL=http://localhost:8001
+    image: tanujachennurkar/splitwise-frontend:latest
     container_name: splitwise-frontend
     restart: always
     ports:
-      - "5173:80"  # Map host port 5173 to container port 80
+      - "5173:80"
     depends_on:
       - backend
 

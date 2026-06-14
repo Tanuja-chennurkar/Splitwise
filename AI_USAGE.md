@@ -6,7 +6,7 @@ This document records the AI tools, key prompt strategies, and three specific lo
 
 ## AI Collaboration & Prompts
 
-* **AI Tool**: Antigravity (powered by Gemini 3.5 Flash)
+* **AI Tool**: Gemini 3.5 Flash
 * **Key Prompts Used**:
   - *Codebase Research*: "Inspect workspace directory and read backend main.py to understand starting stack."
   - *Database Verification*: "Run python script using inspect to list tables in spiltwise_db."
