@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, UploadFile, File, HTTPException, status
+from fastapi import APIRouter, Depends, UploadFile, File
 from sqlalchemy.orm import Session
 
 from app.db.dependencies import get_db
@@ -10,12 +10,12 @@ from app.schemas.expense import (
 from app.models.expense_split import ExpenseSplit
 from app.models.user import User
 from app.models.group import Group
-from app.models.group_membership import GroupMembership
 
 import csv
 import io
 from datetime import datetime
 import re
+
 router = APIRouter(
     prefix="/expenses",
     tags=["Expenses"]
@@ -78,7 +78,7 @@ def delete_expense(
     return {"message": "Expense deleted"}
 
 
-@router.post("/import")
+@router.post("/import-csv")
 def import_expenses(
     file: UploadFile = File(...),
     db: Session = Depends(get_db)
@@ -170,7 +170,8 @@ def import_expenses(
             anomalies.append("missing_payer")
 
         # simple duplicate detection by normalized triple
-        row_hash = (str(exp_date), description.lower(), f"{amount:.2f}" if amount else amount)
+        amount_key = f"{amount:.2f}" if isinstance(amount, (int, float)) else None
+        row_hash = (str(exp_date), description.lower(), amount_key)
         if row_hash in seen_hashes:
             anomalies.append("duplicate")
         else:

@@ -47,7 +47,7 @@ function Groups() {
     const fd = new FormData();
     fd.append("file", csvFile);
     try {
-      const res = await api.post("/expenses/import", fd, {
+      const res = await api.post("/expenses/import-csv", fd, {
         headers: { "Content-Type": "multipart/form-data" },
       });
       setImportReport(res.data);
