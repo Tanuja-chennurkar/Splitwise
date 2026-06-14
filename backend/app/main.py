@@ -23,6 +23,8 @@ from fastapi.middleware.cors import CORSMiddleware
 
 # Import models
 from app.models.user import User
+from app.models.payment import Payment
+from app.models.expense_split import ExpenseSplit
 
 Base.metadata.create_all(bind=engine)
 

@@ -185,18 +185,40 @@ def analyze_import_row(row: dict, seen_hashes: set, seen_rows: list) -> tuple[li
         anomalies.append("possible_settlement")
 
     # 9. Duplicate & Overlapping Dinner checks
-    row_hash = (
-        str(exp_date),
-        description.lower(),
-        f"{normalized_amount:.2f}" if isinstance(normalized_amount, (int, float)) else None,
-    )
-    if row_hash in seen_hashes:
+    # Check for duplicate: same date, payer, amount, and split participants
+    is_duplicate = False
+    if exp_date and normalized_amount is not None:
+        for prev in seen_rows:
+            prev_date = parse_date(prev.get("date"))
+            prev_amt = parse_amount(prev.get("amount"))
+            prev_curr = prev.get("currency") or "INR"
+            _, prev_norm_amt, _ = convert_currency(prev_curr, prev_amt)
+            prev_payer = normalize_name(prev.get("paid_by"))
+            prev_parts = parse_participants(prev.get("split_with") or "")
+            
+            if (prev_date == exp_date and 
+                prev_norm_amt == normalized_amount and 
+                prev_payer == payer_name and 
+                sorted(prev_parts) == sorted(participants)):
+                is_duplicate = True
+                break
+
+    if is_duplicate:
         anomalies.append("duplicate")
     else:
-        seen_hashes.add(row_hash)
+        # Also maintain seen_hashes check for identical descriptions
+        row_hash = (
+            str(exp_date),
+            description.lower(),
+            f"{normalized_amount:.2f}" if isinstance(normalized_amount, (int, float)) else None,
+        )
+        if row_hash in seen_hashes:
+            anomalies.append("duplicate")
+        else:
+            seen_hashes.add(row_hash)
 
     # Check for overlapping dinner (same day, description contains "thalassa" or similar)
-    if exp_date:
+    if exp_date and not is_duplicate:
         for prev in seen_rows:
             prev_date = parse_date(prev.get("date"))
             prev_desc = (prev.get("description") or "").strip().lower()
