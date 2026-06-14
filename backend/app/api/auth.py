@@ -33,7 +33,8 @@ def login(req: LoginRequest, db: Session = Depends(get_db)):
     return {"access_token": token, "token_type": "bearer"}
 
 
+from app.core.auth_dependency import get_current_user
+
 @router.get("/me", response_model=MeResponse)
-def me(db: Session = Depends(get_db), token: str = Depends()):
-    # Lightweight placeholder — frontend can call /users/{id} instead for now
-    raise HTTPException(status_code=501, detail="Not implemented")
+def me(current_user: User = Depends(get_current_user)):
+    return current_user

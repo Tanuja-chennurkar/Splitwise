@@ -8,26 +8,73 @@ export default function Login() {
   const navigate = useNavigate();
 
   const submit = async () => {
+    if (!email.trim() || !password) {
+      return alert("Email and password are required");
+    }
     try {
-      const res = await api.post('/auth/login', { email, password });
+      const res = await api.post("/auth/login", { email, password });
       const token = res.data.access_token;
-      localStorage.setItem('token', token);
-      api.defaults.headers.common['Authorization'] = `Bearer ${token}`;
-      navigate('/');
+      localStorage.setItem("token", token);
+      api.defaults.headers.common["Authorization"] = `Bearer ${token}`;
+      navigate("/");
     } catch (err) {
       console.error(err);
-      alert('Login failed');
+      alert(err.response?.data?.detail || "Login failed");
     }
   };
 
   return (
-    <div className="container">
-      <h1>Login</h1>
-      <input placeholder="Email" value={email} onChange={(e) => setEmail(e.target.value)} />
-      <br />
-      <input placeholder="Password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} />
-      <br />
-      <button onClick={submit}>Login</button>
+    <div style={{ display: "flex", alignItems: "center", justifyContent: "center", minHeight: "80vh" }}>
+      <div className="card" style={{ width: "100%", maxWidth: "420px", padding: "40px" }}>
+        <h1 style={{ marginBottom: "20px", fontSize: "2rem" }}>Log In</h1>
+        
+        <div>
+          <label htmlFor="login-email">Email Address</label>
+          <input
+            id="login-email"
+            type="email"
+            placeholder="e.g. rohan@local"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+          />
+        </div>
+
+        <div>
+          <label htmlFor="login-pw">Password</label>
+          <input
+            id="login-pw"
+            type="password"
+            placeholder="••••••••"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+          />
+        </div>
+
+        <button onClick={submit} style={{ width: "100%", marginTop: "10px" }}>
+          Log In
+        </button>
+
+        <div style={{ background: "rgba(255,255,255,0.03)", padding: "12px", borderRadius: "8px", margin: "20px 0 10px 0", fontSize: "0.85rem", color: "var(--text-secondary)", border: "1px solid rgba(255,255,255,0.05)" }}>
+          <strong>Demo Accounts (Password: <code>password123</code>)</strong>
+          <ul style={{ paddingLeft: "20px", marginTop: "5px" }}>
+            <li>Aisha: <code>aisha@local</code></li>
+            <li>Rohan: <code>rohan@local</code></li>
+            <li>Priya: <code>priya@local</code></li>
+            <li>Meera: <code>meera@local</code></li>
+            <li>Sam: <code>sam@local</code></li>
+          </ul>
+        </div>
+
+        <p style={{ textAlign: "center", fontSize: "0.9rem", marginTop: "20px" }}>
+          Don't have an account?{" "}
+          <span
+            onClick={() => navigate("/register")}
+            style={{ color: "var(--primary)", cursor: "pointer", fontWeight: "600", textDecoration: "underline" }}
+          >
+            Sign Up
+          </span>
+        </p>
+      </div>
     </div>
   );
 }

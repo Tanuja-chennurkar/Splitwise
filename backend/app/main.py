@@ -28,6 +28,31 @@ from app.models.expense_split import ExpenseSplit
 
 Base.metadata.create_all(bind=engine)
 
+# Seed initial users with default passwords ('password123') if database is empty
+from app.db.database import SessionLocal
+from app.models.user import User
+from app.core.security import hash_password
+
+db = SessionLocal()
+try:
+    if db.query(User).count() == 0:
+        default_pw = hash_password("password123")
+        users = [
+            User(name="Aisha", email="aisha@local", password_hash=default_pw),
+            User(name="Rohan", email="rohan@local", password_hash=default_pw),
+            User(name="Priya", email="priya@local", password_hash=default_pw),
+            User(name="Meera", email="meera@local", password_hash=default_pw),
+            User(name="Sam", email="sam@local", password_hash=default_pw),
+            User(name="Dev", email="dev@local", password_hash=default_pw),
+        ]
+        db.add_all(users)
+        db.commit()
+        print("Initial users seeded with password 'password123'!")
+except Exception as e:
+    print("Failed to seed initial users:", e)
+finally:
+    db.close()
+
 app = FastAPI()
 app.include_router(user_router)
 app.include_router(group_router)
