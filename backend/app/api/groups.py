@@ -8,6 +8,7 @@ from app.models.user import User
 from app.models.group_membership import GroupMembership
 from app.models.expense import Expense
 from app.models.expense_split import ExpenseSplit
+
 router = APIRouter(
     prefix="/groups",
     tags=["Groups"]
