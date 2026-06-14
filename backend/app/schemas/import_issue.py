@@ -21,3 +21,4 @@ class ImportIssueResponse(BaseModel):
 class ResolveImportIssueRequest(BaseModel):
     action: str
     resolution_note: str
+    corrected_data: dict | None = None

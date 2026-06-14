@@ -307,9 +307,11 @@ def import_expenses(
     created = 0
     rows = list(reader)
     seen_hashes = set()
+    seen_rows = []
 
     for idx, row in enumerate(rows, start=1):
-        anomalies, payer_name, participants = analyze_import_row(row, seen_hashes)
+        anomalies, payer_name, participants = analyze_import_row(row, seen_hashes, seen_rows)
+        seen_rows.append(row)
 
         if payer_name:
             create_or_get_user(db, payer_name)

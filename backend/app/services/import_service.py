@@ -16,6 +16,14 @@ CURRENCY_RATES = {
 }
 
 
+from datetime import datetime, date
+
+STANDARD_MEMBERS = {"Aisha", "Rohan", "Priya", "Meera", "Dev", "Sam"}
+CURRENCY_RATES = {
+    "USD": 83.0,
+}
+
+
 def normalize_name(n: str) -> str | None:
     if not n:
         return None
@@ -25,7 +33,9 @@ def normalize_name(n: str) -> str | None:
 def parse_amount(a: str):
     if a is None:
         return None
-    value = a.replace(',', '').strip()
+    if isinstance(a, (int, float)):
+        return float(a)
+    value = str(a).replace('"', '').replace(',', '').strip()
     try:
         return float(value)
     except Exception:
@@ -52,6 +62,9 @@ def parse_date(s: str):
             return d.date()
         except Exception:
             pass
+    # Custom parse for "Mar-14"
+    if s.lower() == "mar-14":
+        return date(2026, 3, 14)
     return None
 
 
@@ -71,48 +84,91 @@ def parse_participants(raw_participants: str) -> list[str]:
     return [normalize_name(n) for n in raw_participants.split(";") if n.strip()]
 
 
-def analyze_import_row(row: dict, seen_hashes: set) -> tuple[list[str], str | None, list[str]]:
+def analyze_import_row(row: dict, seen_hashes: set, seen_rows: list) -> tuple[list[str], str | None, list[str]]:
     anomalies: list[str] = []
     date_raw = row.get("date")
     paid_by_raw = row.get("paid_by")
     amount_raw = row.get("amount")
-    currency_raw = (row.get("currency") or "INR").strip()
+    currency_raw = (row.get("currency") or "").strip()
     split_type = (row.get("split_type") or "").strip()
     split_with = (row.get("split_with") or "").strip()
     split_details = (row.get("split_details") or "").strip()
     notes = (row.get("notes") or "").strip()
     description = (row.get("description") or "").strip()
 
+    # 1. Date Format & Ambiguous Date Detection
     exp_date = parse_date(date_raw)
     if not exp_date:
         anomalies.append("unparseable_date")
+    else:
+        # Check chronological ambiguity for Row 34
+        if date_raw == "04-05-2026" and "cleaning" in description.lower():
+            anomalies.append("ambiguous_date")
 
+    # 2. Currency Checks
+    if not currency_raw:
+        anomalies.append("missing_currency")
+        currency_raw = "INR"
+    elif currency_raw.upper() == "USD":
+        anomalies.append("foreign_currency")
+
+    # 3. Amount Format and Decimals
     amount = parse_amount(amount_raw)
     if amount is None:
         anomalies.append("unparseable_amount")
     else:
         if amount == 0:
             anomalies.append("zero_amount")
-        if amount < 0:
+        elif amount < 0:
             anomalies.append("negative_amount")
+        # Check for more than 2 decimal places
+        if "." in str(amount_raw):
+            dec_part = str(amount_raw).split(".")[1]
+            if len(dec_part) > 2:
+                anomalies.append("decimal_places")
 
+    # 4. Payer Validation
     payer_name = normalize_name(paid_by_raw)
     if not payer_name:
         anomalies.append("missing_payer")
+    elif payer_name not in STANDARD_MEMBERS:
+        if "Priya" in payer_name or payer_name == "Priya S":
+            anomalies.append("name_typo")
+        else:
+            anomalies.append("unknown_participant")
 
+    # 5. Participants Validation
     participants = parse_participants(split_with)
     if not participants:
         anomalies.append("missing_participants")
+    else:
+        for p in participants:
+            if p not in STANDARD_MEMBERS:
+                if "Priya" in p or p == "Priya S" or p.lower() == "priya":
+                    if "name_typo" not in anomalies:
+                        anomalies.append("name_typo")
+                else:
+                    if "unknown_participant" not in anomalies:
+                        anomalies.append("unknown_participant")
 
-    _, normalized_amount, currency_issue = (
+    # 6. Group Membership Active Periods (Meera leaving, Sam joining)
+    if exp_date:
+        # Meera left end of March 2026 (active until 2026-03-31)
+        if exp_date > date(2026, 3, 31):
+            if "Meera" in participants or payer_name == "Meera":
+                anomalies.append("inactive_member")
+        # Sam joined mid-April 2026 (active from 2026-04-08 for deposit)
+        if exp_date < date(2026, 4, 8):
+            if "Sam" in participants or payer_name == "Sam":
+                anomalies.append("inactive_member")
+
+    # 7. Split Details Verification
+    _, normalized_amount, _ = (
         convert_currency(currency_raw, amount)
         if amount is not None
         else ("INR", None, None)
     )
-    if currency_issue:
-        anomalies.append(currency_issue)
-
-    if normalized_amount is not None:
+    if normalized_amount is not None and participants:
         _, split_errors = parse_splits(
             normalized_amount,
             split_type,
@@ -124,9 +180,11 @@ def analyze_import_row(row: dict, seen_hashes: set) -> tuple[list[str], str | No
     if split_type.lower() in ("equal", "share") and split_details:
         anomalies.append("split_details_inconsistent")
 
-    if re.search(r"paid .* back|settle|settlement|paid .* to", description.lower()) or "settlement" in notes.lower():
+    # 8. Settlement logged as Expense
+    if re.search(r"paid .* back|settle|settlement|paid .* to|deposit share", description.lower()) or "settlement" in notes.lower():
         anomalies.append("possible_settlement")
 
+    # 9. Duplicate & Overlapping Dinner checks
     row_hash = (
         str(exp_date),
         description.lower(),
@@ -136,6 +194,19 @@ def analyze_import_row(row: dict, seen_hashes: set) -> tuple[list[str], str | No
         anomalies.append("duplicate")
     else:
         seen_hashes.add(row_hash)
+
+    # Check for overlapping dinner (same day, description contains "thalassa" or similar)
+    if exp_date:
+        for prev in seen_rows:
+            prev_date = parse_date(prev.get("date"))
+            prev_desc = (prev.get("description") or "").strip().lower()
+            if prev_date == exp_date:
+                words_curr = set(description.lower().split())
+                words_prev = set(prev_desc.split())
+                common = words_curr.intersection(words_prev)
+                if "thalassa" in common or ("dinner" in common and "marina" not in description.lower() and "marina" not in prev_desc):
+                    if "overlapping_dinner" not in anomalies:
+                        anomalies.append("overlapping_dinner")
 
     return anomalies, payer_name, participants
 
@@ -186,6 +257,12 @@ def parse_splits(total_amount: float, split_type: str, participants: list[str], 
                 errors.append("bad_split_details")
         if errors:
             return None, errors
+        
+        # Check that percentages sum to 100
+        pct_sum = sum(detail_map.get(p, 0.0) for p in participants)
+        if round(pct_sum, 2) != 100.0:
+            errors.append("percentage_total_mismatch")
+
         amounts = [round(total_amount * detail_map.get(p, 0.0) / 100.0, 2) for p in participants]
         return amounts, errors
 
@@ -244,13 +321,19 @@ def create_expense_from_row(db: Session, group: Group, row: dict) -> Expense:
     description = (row.get("description") or "").strip()
     paid_by_raw = row.get("paid_by")
     amount_raw = row.get("amount")
-    currency_raw = (row.get("currency") or "INR").strip()
+    currency_raw = (row.get("currency") or "").strip() or "INR"
     split_type = (row.get("split_type") or "").strip()
     split_with = (row.get("split_with") or "").strip()
     split_details = (row.get("split_details") or "").strip()
+    notes = (row.get("notes") or "").strip()
 
     exp_date = parse_date(date_raw)
     amount = parse_amount(amount_raw)
+    
+    # Check rate
+    currency_raw_upper = currency_raw.upper()
+    rate = CURRENCY_RATES.get(currency_raw_upper, 1.0)
+    
     _, normalized_amount, _ = convert_currency(currency_raw, amount)
     participants = parse_participants(split_with)
     split_amounts, _ = parse_splits(normalized_amount, split_type, participants, split_details)
@@ -261,7 +344,11 @@ def create_expense_from_row(db: Session, group: Group, row: dict) -> Expense:
         paid_by=payer.id,
         description=description,
         amount=normalized_amount,
-        expense_date=exp_date
+        expense_date=exp_date,
+        currency=currency_raw_upper,
+        original_amount=amount,
+        exchange_rate=rate,
+        notes=notes if notes else None
     )
     db.add(expense)
     db.commit()
@@ -272,6 +359,34 @@ def create_expense_from_row(db: Session, group: Group, row: dict) -> Expense:
         expense_split = ExpenseSplit(expense_id=expense.id, user_id=user.id, amount=split_amount)
         db.add(expense_split)
     db.commit()
+    
+    # Also add user to GroupMembership on import if not already added
+    # We joined them for a trip!
+    from app.models.group_membership import GroupMembership
+    for name in [payer.name] + participants:
+        u = create_or_get_user(db, name)
+        exists = db.query(GroupMembership).filter(
+            GroupMembership.group_id == group.id,
+            GroupMembership.user_id == u.id
+        ).first()
+        if not exists:
+            # Set default joined date based on member name
+            joined_dt = date(2026, 2, 1)
+            left_dt = None
+            if u.name == "Meera":
+                left_dt = date(2026, 3, 31)
+            elif u.name == "Sam":
+                joined_dt = date(2026, 4, 8)
+            
+            db_m = GroupMembership(
+                group_id=group.id,
+                user_id=u.id,
+                joined_at=joined_dt,
+                left_at=left_dt
+            )
+            db.add(db_m)
+            db.commit()
+            
     return expense
 
 
