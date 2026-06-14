@@ -64,6 +64,27 @@ You can change this connection string by editing:
 
 ---
 
+## Running with Docker (Recommended for Easy Deployment)
+
+To build and spin up the complete stack (PostgreSQL, Backend, and Frontend) automatically, use Docker Compose:
+
+1. Ensure Docker Desktop is running on your machine.
+2. From the root directory, run:
+   ```bash
+   docker compose up --build
+   ```
+3. Once running, you can access the application at:
+   - **Frontend**: `http://localhost:5173`
+   - **Backend API**: `http://localhost:8001`
+   - **PostgreSQL**: `localhost:5433` (accessible by host tools)
+
+To shut down the containers and preserve volume data:
+```bash
+docker compose down
+```
+
+---
+
 ## How to Test the CSV Import
 1. Navigate to `http://localhost:5173`.
 2. Register/Login or select the pre-loaded group.
