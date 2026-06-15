@@ -93,3 +93,25 @@ docker compose down
 5. You will be redirected to the **CSV Import Resolution Wizard**, showing a list of all staged rows with anomalies.
 6. For each row, review the proposed resolution (date fix, typo correction, USD conversion rate, or ignoring duplicate) and click **Approve Resolution & Commit**.
 7. Go back to the Group Details page to see the updated balances, simplified direct settlements, and the transaction ledgers!
+
+---
+
+## Seeded Accounts & Default Credentials
+
+The database comes pre-seeded with the default group members of the flatshare. You can log in using any of the following accounts:
+
+* **Default Password**: `password123`
+* **Email addresses**:
+  - Aisha: `aisha@local`
+  - Rohan: `rohan@local`
+  - Priya: `priya@local`
+  - Meera: `meera@local`
+  - Sam: `sam@local`
+  - Dev: `dev@local`
+
+Additionally, you can log in using the pre-registered verification test account:
+* **Email**: `testuser@gmail.com`
+* **Password**: `testpassword123`
+
+You can also create a new account by clicking the **Sign Up** link on the login page.
+
